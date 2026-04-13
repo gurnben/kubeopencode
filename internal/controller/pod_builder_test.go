@@ -3049,3 +3049,54 @@ func TestBuildPodSecurityContext(t *testing.T) {
 		}
 	})
 }
+
+func TestApplySystemDefaults_DefaultRuntime(t *testing.T) {
+	tests := []struct {
+		name            string
+		agentRuntime    string
+		clusterDefault  string
+		expectedRuntime string
+	}{
+		{
+			name:            "empty agent + empty cluster = opencode",
+			agentRuntime:    "",
+			clusterDefault:  "",
+			expectedRuntime: "opencode",
+		},
+		{
+			name:            "empty agent + cluster crush = crush",
+			agentRuntime:    "",
+			clusterDefault:  "crush",
+			expectedRuntime: "crush",
+		},
+		{
+			name:            "agent opencode + cluster crush = opencode (agent wins)",
+			agentRuntime:    "opencode",
+			clusterDefault:  "crush",
+			expectedRuntime: "opencode",
+		},
+		{
+			name:            "agent crush + cluster opencode = crush (agent wins)",
+			agentRuntime:    "crush",
+			clusterDefault:  "opencode",
+			expectedRuntime: "crush",
+		},
+		{
+			name:            "agent crush + empty cluster = crush",
+			agentRuntime:    "crush",
+			clusterDefault:  "",
+			expectedRuntime: "crush",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := agentConfig{runtime: tt.agentRuntime}
+			sys := systemConfig{defaultRuntime: tt.clusterDefault}
+			cfg.applySystemDefaults(sys)
+			if cfg.runtime != tt.expectedRuntime {
+				t.Errorf("expected runtime=%q, got %q", tt.expectedRuntime, cfg.runtime)
+			}
+		})
+	}
+}

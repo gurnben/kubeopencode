@@ -47,7 +47,7 @@ func ResolveAgentConfigFromTemplate(ctx context.Context, reader client.Reader, a
 //
 // The returned agentConfig has image defaults applied (same as ResolveAgentConfig).
 func MergeAgentWithTemplate(agent *kubeopenv1alpha1.Agent, tmpl *kubeopenv1alpha1.AgentTemplate) agentConfig {
-	runtime := defaultString(agent.Spec.Runtime, defaultString(tmpl.Spec.Runtime, "opencode"))
+	runtime := defaultString(agent.Spec.Runtime, tmpl.Spec.Runtime)
 	profile := GetRuntimeProfile(runtime)
 	merged := agentConfig{
 		runtime:       runtime,

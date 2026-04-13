@@ -1177,6 +1177,7 @@ func resolveSystemConfig(ctx context.Context, reader client.Reader) systemConfig
 	}
 
 	cfg.proxy = config.Spec.Proxy
+	cfg.defaultRuntime = config.Spec.DefaultRuntime
 
 	return cfg
 }

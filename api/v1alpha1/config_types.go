@@ -46,6 +46,15 @@ type KubeOpenCodeConfigSpec struct {
 	// If not specified, no proxy environment variables are injected.
 	// +optional
 	Proxy *ProxyConfig `json:"proxy,omitempty"`
+
+	// DefaultRuntime sets the cluster-wide default coding agent runtime.
+	// When an Agent or AgentTemplate does not specify a runtime, this value is used.
+	// Individual Agents and AgentTemplates can override this in their own spec.
+	// Supported values: "opencode" (default), "crush".
+	// If not specified, defaults to "opencode".
+	// +kubebuilder:validation:Enum=opencode;crush
+	// +optional
+	DefaultRuntime string `json:"defaultRuntime,omitempty"`
 }
 
 // CleanupConfig defines cleanup policies for completed/failed Tasks.

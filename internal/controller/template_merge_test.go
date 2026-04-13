@@ -523,7 +523,7 @@ func TestMergeAgentWithTemplate(t *testing.T) {
 			},
 		},
 		{
-			name: "runtime defaults to opencode when neither agent nor template set it",
+			name: "runtime defaults to empty when neither agent nor template set it (applySystemDefaults applies final default)",
 			agent: &kubeopenv1alpha1.Agent{
 				Spec: kubeopenv1alpha1.AgentSpec{
 					WorkspaceDir:       "/workspace",
@@ -536,8 +536,8 @@ func TestMergeAgentWithTemplate(t *testing.T) {
 				},
 			},
 			check: func(t *testing.T, cfg agentConfig) {
-				if cfg.runtime != "opencode" {
-					t.Errorf("expected runtime=opencode (default), got %s", cfg.runtime)
+				if cfg.runtime != "" {
+					t.Errorf("expected runtime=\"\" (empty, default applied later by applySystemDefaults), got %s", cfg.runtime)
 				}
 			},
 		},

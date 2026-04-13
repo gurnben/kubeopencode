@@ -49,7 +49,7 @@ type agentConfig struct {
 func ResolveAgentConfig(agent *kubeopenv1alpha1.Agent) agentConfig {
 	profile := GetRuntimeProfile(agent.Spec.Runtime)
 	return agentConfig{
-		runtime:            defaultString(agent.Spec.Runtime, "opencode"),
+		runtime:            agent.Spec.Runtime,
 		agentImage:         defaultString(agent.Spec.AgentImage, profile.DefaultAgentImage),
 		executorImage:      defaultString(agent.Spec.ExecutorImage, DefaultExecutorImage),
 		attachImage:        defaultString(agent.Spec.AttachImage, DefaultAttachImage),
@@ -82,7 +82,7 @@ func ResolveAgentConfig(agent *kubeopenv1alpha1.Agent) agentConfig {
 func ResolveTemplateToConfig(tmpl *kubeopenv1alpha1.AgentTemplate) agentConfig {
 	profile := GetRuntimeProfile(tmpl.Spec.Runtime)
 	return agentConfig{
-		runtime:            defaultString(tmpl.Spec.Runtime, "opencode"),
+		runtime:            tmpl.Spec.Runtime,
 		agentImage:         defaultString(tmpl.Spec.AgentImage, profile.DefaultAgentImage),
 		executorImage:      defaultString(tmpl.Spec.ExecutorImage, DefaultExecutorImage),
 		attachImage:        defaultString(tmpl.Spec.AttachImage, DefaultAttachImage),
@@ -113,6 +113,9 @@ type systemConfig struct {
 	// proxy is the cluster-wide proxy configuration from KubeOpenCodeConfig.
 	// Agent-level proxy takes precedence over this.
 	proxy *kubeopenv1alpha1.ProxyConfig
+	// defaultRuntime is the cluster-wide default runtime from KubeOpenCodeConfig.
+	// Empty string means "opencode" (the ultimate default).
+	defaultRuntime string
 }
 
 // applySystemDefaults merges cluster-level configuration from KubeOpenCodeConfig
@@ -121,6 +124,13 @@ type systemConfig struct {
 func (c *agentConfig) applySystemDefaults(sys systemConfig) {
 	if c.proxy == nil && sys.proxy != nil {
 		c.proxy = sys.proxy
+	}
+	if c.runtime == "" {
+		if sys.defaultRuntime != "" {
+			c.runtime = sys.defaultRuntime
+		} else {
+			c.runtime = "opencode"
+		}
 	}
 }
 

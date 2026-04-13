@@ -83,6 +83,17 @@ spec:
                     minimum: 0
                     type: integer
                 type: object
+              defaultRuntime:
+                description: |-
+                  DefaultRuntime sets the cluster-wide default coding agent runtime.
+                  When an Agent or AgentTemplate does not specify a runtime, this value is used.
+                  Individual Agents and AgentTemplates can override this in their own spec.
+                  Supported values: "opencode" (default), "crush".
+                  If not specified, defaults to "opencode".
+                enum:
+                - opencode
+                - crush
+                type: string
               proxy:
                 description: |-
                   Proxy configures cluster-wide HTTP/HTTPS proxy settings for all generated Pods.
