@@ -6,6 +6,9 @@ metadata:
   labels:
     {{- include "kubeopencode.labels" . | nindent 4 }}
 spec:
+  {{- if .Values.kubeopencodeConfig.defaultRuntime }}
+  defaultRuntime: {{ .Values.kubeopencodeConfig.defaultRuntime }}
+  {{- end }}
   {{- if .Values.kubeopencodeConfig.systemImage }}
   systemImage:
     {{- if .Values.kubeopencodeConfig.systemImage.image }}

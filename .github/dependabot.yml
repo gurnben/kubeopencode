@@ -34,6 +34,11 @@ updates:
     schedule:
       interval: "weekly"
 
+  - package-ecosystem: "docker"
+    directory: "/agents/crush"
+    schedule:
+      interval: "weekly"
+
   - package-ecosystem: "helm"
     directory: "/charts/kubeopencode"
     schedule:

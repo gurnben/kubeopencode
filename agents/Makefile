@@ -14,6 +14,9 @@ NO_CACHE_FLAG := $(if $(NO_CACHE),--no-cache,)
 # OpenCode version for opencode agent (usage: make AGENT=opencode OPENCODE_VERSION=1.3.13 build)
 OPENCODE_VERSION ?= 1.4.3
 
+# Crush version for crush agent (usage: make AGENT=crush CRUSH_VERSION=0.56.0 build)
+CRUSH_VERSION ?= 0.56.0
+
 # Image URL configuration
 IMG_REGISTRY ?= ghcr.io
 IMG_ORG ?= kubeopencode
@@ -66,6 +69,8 @@ build: ## Build agent docker image (AGENT=opencode|devbox|attach)
 	fi
 	@if [ "$(AGENT)" = "opencode" ]; then \
 		docker build $(NO_CACHE_FLAG) --build-arg OPENCODE_VERSION=$(OPENCODE_VERSION) -t $(IMG) $(AGENT)/; \
+	elif [ "$(AGENT)" = "crush" ]; then \
+		docker build $(NO_CACHE_FLAG) --build-arg CRUSH_VERSION=$(CRUSH_VERSION) -t $(IMG) $(AGENT)/; \
 	else \
 		docker build $(NO_CACHE_FLAG) --build-arg BASE_IMAGE=$(BASE_IMG) -t $(IMG) $(AGENT)/; \
 	fi
@@ -90,6 +95,14 @@ buildx: ## Build and push agent image for multiple architectures
 		docker buildx build \
 			$(NO_CACHE_FLAG) \
 			--build-arg OPENCODE_VERSION=$(OPENCODE_VERSION) \
+			--platform=$(PLATFORMS) \
+			--tag $(IMG) \
+			--push \
+			$(AGENT)/; \
+	elif [ "$(AGENT)" = "crush" ]; then \
+		docker buildx build \
+			$(NO_CACHE_FLAG) \
+			--build-arg CRUSH_VERSION=$(CRUSH_VERSION) \
 			--platform=$(PLATFORMS) \
 			--tag $(IMG) \
 			--push \
@@ -149,6 +162,8 @@ help: ## Display this help
 	@echo "  make build                                   # Build devbox (default) using base"
 	@echo "  make AGENT=opencode build                    # Build opencode agent"
 	@echo "  make AGENT=opencode OPENCODE_VERSION=1.2.0 build  # Build with specific OpenCode version"
+	@echo "  make AGENT=crush build                           # Build crush agent"
+	@echo "  make AGENT=crush CRUSH_VERSION=0.56.0 build      # Build with specific Crush version"
 	@echo "  make NO_CACHE=1 build                        # Build without cache (fetch latest)"
 	@echo "  make NO_CACHE=1 build-all                    # Rebuild all agents without cache"
 	@echo "  make build-all                               # Build base + all agents"

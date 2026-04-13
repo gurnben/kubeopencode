@@ -62,3 +62,45 @@ spec:
 ```
 
 The configuration is written to `/tools/opencode.json` and the `OPENCODE_CONFIG` environment variable is set automatically. See [OpenCode configuration schema](https://opencode.ai/config.json) for available options.
+
+## Runtime Selection
+
+KubeOpenCode supports multiple coding agent runtimes. Set the `runtime` field
+on your Agent or AgentTemplate to choose which runtime to use:
+
+| Runtime | Binary | Description |
+|---------|--------|-------------|
+| `opencode` (default) | OpenCode | Full-featured coding agent by Anomaly |
+| `crush` | Crush | Agentic coding tool by Charmbracelet |
+
+### Per-Agent
+
+```yaml
+apiVersion: kubeopencode.io/v1alpha1
+kind: Agent
+metadata:
+  name: my-crush-agent
+spec:
+  runtime: crush
+  agentImage: ghcr.io/kubeopencode/kubeopencode-agent-crush:latest
+  executorImage: ghcr.io/kubeopencode/kubeopencode-agent-devbox:latest
+  config: |
+    {
+      "model": "anthropic/claude-sonnet-4-20250514"
+    }
+```
+
+### Cluster-Wide Default
+
+Set a default runtime for all Agents via KubeOpenCodeConfig:
+
+```yaml
+apiVersion: kubeopencode.io/v1alpha1
+kind: KubeOpenCodeConfig
+metadata:
+  name: cluster
+spec:
+  defaultRuntime: crush
+```
+
+Agents that explicitly set `runtime` override the cluster default.

@@ -7,7 +7,8 @@ This guide explains how to build custom executor images for KubeOpenCode.
 KubeOpenCode uses a **two-container pattern** for executing AI-powered tasks:
 
 1. **OpenCode Image** (Init Container): Contains the OpenCode CLI, copies it to a shared volume
-2. **Executor Image** (Worker Container): User's development environment that uses the OpenCode tool
+2. **Crush Image** (Init Container): Alternative to OpenCode — contains the Crush CLI from Charmbracelet
+3. **Executor Image** (Worker Container): User's development environment that uses the agent tool
 
 This design separates the AI tool (OpenCode) from the execution environment, allowing users to bring their own toolsets while using a single, maintained AI agent.
 
@@ -17,11 +18,12 @@ This design separates the AI tool (OpenCode) from the execution environment, all
 ┌─────────────────────────────────────────────────────────────┐
 │                        Job Pod                               │
 ├─────────────────────────────────────────────────────────────┤
-│  Init Container: opencode-init                               │
+│  Init Container: agent-init (opencode or crush)               │
 │  ┌───────────────────────────────────────────────────────┐  │
 │  │  Image: kubeopencode-agent-opencode                   │  │
-│  │  - Contains OpenCode CLI (AI agent)            │  │
-│  │  - Copies opencode binary to /tools volume            │  │
+│  │     or: kubeopencode-agent-crush                      │  │
+│  │  - Contains agent CLI (OpenCode or Crush)             │  │
+│  │  - Copies binary to /tools volume                     │  │
 │  └───────────────────────────────────────────────────────┘  │
 │                           │                                  │
 │                           ▼ shared volume (/tools)           │
@@ -32,7 +34,7 @@ This design separates the AI tool (OpenCode) from the execution environment, all
 │  │  ├── devbox        (full dev environment)             │  │
 │  │  └── user-custom   (your own toolset)                 │  │
 │  │                                                       │  │
-│  │  Runs: /tools/opencode run "$(cat task.md)"           │  │
+│  │  Runs: /tools/opencode run ... or /tools/crush ...    │  │
 │  └───────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -41,8 +43,8 @@ This design separates the AI tool (OpenCode) from the execution environment, all
 
 | Concept | Description |
 |---------|-------------|
-| **Single AI Tool** | OpenCode is the only AI agent, simplifying maintenance |
-| **Tool Injection** | OpenCode binary is injected via init container |
+| **Multiple Runtimes** | OpenCode and Crush are both supported as AI agents |
+| **Tool Injection** | Agent binary is injected via init container |
 | **Custom Executors** | Users provide their own execution environments |
 | **Separation of Concerns** | AI tool vs development environment are decoupled |
 
@@ -51,6 +53,7 @@ This design separates the AI tool (OpenCode) from the execution environment, all
 | Image | Purpose | Container Type |
 |-------|---------|----------------|
 | `opencode` | OpenCode CLI (AI agent) | Init Container |
+| `crush` | Crush CLI (AI agent) | Init Container |
 | `devbox` | Universal development environment | Worker (Executor) |
 | `attach` | Lightweight image for Server mode `--attach` | Worker (Server mode) |
 
@@ -106,6 +109,9 @@ From the `agents/` directory:
 # Build OpenCode image (init container)
 make AGENT=opencode build
 
+# Build Crush image (init container)
+make AGENT=crush build
+
 # Build devbox image (executor)
 make AGENT=devbox build
 
@@ -114,6 +120,7 @@ make AGENT=attach build
 
 # Multi-arch build and push
 make AGENT=opencode buildx
+make AGENT=crush buildx
 make AGENT=devbox buildx
 make AGENT=attach buildx
 ```
@@ -123,6 +130,7 @@ From the project root:
 ```bash
 # Same commands via project Makefile
 make agent-build AGENT=opencode
+make agent-build AGENT=crush
 make agent-build AGENT=devbox
 make agent-build AGENT=attach
 ```
@@ -308,6 +316,7 @@ If a tool is missing:
 | Image | Approximate Size | Description |
 |-------|-----------------|-------------|
 | `opencode` | ~500 MB | OpenCode CLI only |
+| `crush` | ~100 MB | Crush CLI only |
 | `devbox` | ~2-3 GB | Full development environment |
 | `attach` | ~25 MB | Minimal image for Server mode (OpenCode binary + ca-certs) |
 

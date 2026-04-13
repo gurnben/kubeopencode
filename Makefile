@@ -273,6 +273,7 @@ lint:
 # Kind cluster name for e2e testing
 E2E_CLUSTER_NAME ?= kubeopencode-e2e
 E2E_IMG_TAG ?= dev
+E2E_CRUSH_AGENT_IMAGE ?= ghcr.io/kubeopencode/kubeopencode-agent-crush:$(E2E_IMG_TAG)
 
 # Create kind cluster for e2e testing
 # Uses e2e/kind-config.yaml to expose NodePort 30082 for webhook server
@@ -357,15 +358,17 @@ e2e-reload: e2e-docker-build e2e-kind-load e2e-verify-image ## Rebuild and reloa
 
 # Build agent images for e2e testing
 # Uses E2E_IMG_TAG (default: dev) to avoid :latest which triggers PullAlways in Kind
-e2e-agent-build: ## Build agent images for e2e testing (echo + opencode)
+e2e-agent-build: ## Build agent images for e2e testing (echo + opencode + crush)
 	docker build -t ghcr.io/kubeopencode/kubeopencode-agent-echo:$(E2E_IMG_TAG) agents/echo/
 	$(MAKE) -C agents AGENT=opencode build IMG=ghcr.io/kubeopencode/kubeopencode-agent-opencode:$(E2E_IMG_TAG)
+	$(MAKE) -C agents AGENT=crush build IMG=ghcr.io/kubeopencode/kubeopencode-agent-crush:$(E2E_IMG_TAG)
 .PHONY: e2e-agent-build
 
 # Load agent images into kind cluster
-e2e-agent-load: ## Load agent images into kind cluster (echo + opencode)
+e2e-agent-load: ## Load agent images into kind cluster (echo + opencode + crush)
 	kind load docker-image ghcr.io/kubeopencode/kubeopencode-agent-echo:$(E2E_IMG_TAG) --name $(E2E_CLUSTER_NAME)
 	kind load docker-image ghcr.io/kubeopencode/kubeopencode-agent-opencode:$(E2E_IMG_TAG) --name $(E2E_CLUSTER_NAME)
+	kind load docker-image ghcr.io/kubeopencode/kubeopencode-agent-crush:$(E2E_IMG_TAG) --name $(E2E_CLUSTER_NAME)
 .PHONY: e2e-agent-load
 
 
@@ -420,7 +423,7 @@ e2e: e2e-setup e2e-test ## Run full e2e test workflow
 # Kind cluster name for local development
 LOCAL_DEV_CLUSTER ?= kubeopencode
 LOCAL_DEV_IMG_TAG ?= dev
-LOCAL_DEV_AGENTS := opencode devbox attach
+LOCAL_DEV_AGENTS := opencode crush devbox attach
 
 # All images needed for local dev (controller + agents)
 LOCAL_DEV_CONTROLLER_IMG := $(IMG_REGISTRY)/$(IMG_ORG)/$(IMG_NAME)

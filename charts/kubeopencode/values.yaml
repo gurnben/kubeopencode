@@ -57,10 +57,17 @@ controller:
 # and reference it in Agent.spec.serviceAccountName (required field).
 # NOTE: Agent images are configured in Agent CRDs, not in this Helm chart.
 # The two-container pattern uses:
-#   - agentImage: OpenCode init container (default: ghcr.io/kubeopencode/kubeopencode-agent-opencode)
+#   - agentImage: Init container with the coding agent CLI
 #   - executorImage: Worker container (default: ghcr.io/kubeopencode/kubeopencode-agent-devbox)
+# Runtime-specific agent images:
+#   - OpenCode (default): ghcr.io/kubeopencode/kubeopencode-agent-opencode
+#   - Crush: ghcr.io/kubeopencode/kubeopencode-agent-crush
 agent:
   # Default image settings (used for local development with Kind)
+  # Runtime-specific agent images are configured in Agent CRDs:
+  #   - OpenCode (default): ghcr.io/kubeopencode/kubeopencode-agent-opencode
+  #   - Crush: ghcr.io/kubeopencode/kubeopencode-agent-crush
+  #   - executorImage: Worker container (default: ghcr.io/kubeopencode/kubeopencode-agent-devbox)
   image:
     pullPolicy: IfNotPresent
 
@@ -182,6 +189,10 @@ server:
 kubeopencodeConfig:
   # Whether to create the default KubeOpenCodeConfig
   create: true
+  # Default coding agent runtime for the cluster.
+  # Individual Agents can override this in their spec.
+  # Supported: "opencode" (default), "crush"
+  defaultRuntime: ""
   # System image configuration for internal components (git-init, context-init)
   systemImage:
     # Image to use (empty = use controller image)

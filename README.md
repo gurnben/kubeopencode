@@ -11,7 +11,7 @@
   <a href="https://goreportcard.com/report/github.com/kubeopencode/kubeopencode"><img src="https://goreportcard.com/badge/github.com/kubeopencode/kubeopencode" alt="Go Report Card"></a>
 </p>
 
-> **Note**: KubeOpenCode builds on the excellent [OpenCode](https://opencode.ai) AI agent. OpenCode is great for individual developers — KubeOpenCode makes it work for **teams and enterprises** by adding governance, shared agent configurations, scale, and enterprise infrastructure integration. This is an independent project, not affiliated with the OpenCode team.
+> **Note**: KubeOpenCode builds on the excellent [OpenCode](https://opencode.ai) AI agent and also supports [Crush](https://charm.sh/crush) by Charmbracelet. OpenCode is great for individual developers — KubeOpenCode makes it work for **teams and enterprises** by adding governance, shared agent configurations, scale, and enterprise infrastructure integration. This is an independent project, not affiliated with the OpenCode or Charmbracelet teams.
 
 <br>
 
