@@ -39,9 +39,10 @@ type sessionStatusInfo struct {
 
 var taskSubmitCmd = &cobra.Command{
 	Use:   "task-submit",
-	Short: "Submit a task to an OpenCode server and wait for completion",
-	Long: `Submit a task prompt to an OpenCode server via HTTP API and wait for the
-session to become idle. This command does NOT handle permission requests —
+	Short: "Submit a task to an OpenCode or Crush server and wait for completion",
+	Long: `Submit a task prompt to an OpenCode or Crush server via HTTP API and wait for the
+session to become idle. Use --runtime to select the target runtime (opencode or crush).
+This command does NOT handle permission requests —
 permissions must be approved via the Web UI or opencode attach TUI.
 
 This is used internally by KubeOpenCode for Server-mode Task Pods.`,
@@ -51,11 +52,13 @@ This is used internally by KubeOpenCode for Server-mode Task Pods.`,
 var (
 	taskSubmitServerURL string
 	taskSubmitTaskFile  string
+	taskSubmitRuntime   string
 )
 
 func init() {
 	taskSubmitCmd.Flags().StringVar(&taskSubmitServerURL, "url", "", "OpenCode server URL (e.g., http://server:4096)")
 	taskSubmitCmd.Flags().StringVar(&taskSubmitTaskFile, "task-file", "", "Path to the task prompt file")
+	taskSubmitCmd.Flags().StringVar(&taskSubmitRuntime, "runtime", "opencode", "Runtime type (opencode or crush)")
 	_ = taskSubmitCmd.MarkFlagRequired("url")
 	_ = taskSubmitCmd.MarkFlagRequired("task-file")
 	rootCmd.AddCommand(taskSubmitCmd)
@@ -74,10 +77,21 @@ func runTaskSubmit(cmd *cobra.Command, args []string) error {
 	}
 
 	serverURL := strings.TrimRight(taskSubmitServerURL, "/")
-	client := &http.Client{Timeout: httpTimeout}
 
 	fmt.Printf("[task-submit] server: %s\n", serverURL)
+	fmt.Printf("[task-submit] runtime: %s\n", taskSubmitRuntime)
 	fmt.Printf("[task-submit] task file: %s (%d bytes)\n", taskSubmitTaskFile, len(prompt))
+
+	switch taskSubmitRuntime {
+	case "crush":
+		return runCrushTaskSubmit(serverURL, prompt)
+	default:
+		return runOpenCodeTaskSubmit(serverURL, prompt)
+	}
+}
+
+func runOpenCodeTaskSubmit(serverURL, prompt string) error {
+	client := &http.Client{Timeout: httpTimeout}
 
 	// Step 1: Create a session
 	fmt.Println("[task-submit] creating session...")
