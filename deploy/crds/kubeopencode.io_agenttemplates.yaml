@@ -62,8 +62,8 @@ spec:
             properties:
               agentImage:
                 description: |-
-                  AgentImage specifies the OpenCode init container image.
-                  This image contains the OpenCode binary that gets copied to /tools volume.
+                  AgentImage specifies the runtime init container image.
+                  This image contains the runtime binary that gets copied to the /tools volume.
                   If not specified, defaults to "ghcr.io/kubeopencode/kubeopencode-agent-opencode:latest".
                 type: string
               attachImage:
@@ -114,13 +114,12 @@ spec:
               command:
                 description: |-
                   Command specifies the entrypoint command for the agent container.
-                  If not specified, defaults to:
-                    ["sh", "-c", "/tools/opencode run \"$(cat ${WORKSPACE_DIR}/task.md)\""]
+                  If not specified, the default command is generated based on the selected runtime.
                 items:
                   type: string
                 type: array
               config:
-                description: Config provides OpenCode configuration as a JSON string.
+                description: Config provides runtime configuration as a JSON string.
                 type: string
               contexts:
                 description: Contexts provides default contexts for all tasks using
@@ -2343,6 +2342,16 @@ spec:
                 - maxTaskStarts
                 - windowSeconds
                 type: object
+              runtime:
+                default: opencode
+                description: |-
+                  Runtime selects the coding agent runtime for Agents derived from this template.
+                  Supported values: "opencode" (default), "crush".
+                  Agents can override this value in their own spec.
+                enum:
+                - opencode
+                - crush
+                type: string
               serviceAccountName:
                 description: ServiceAccountName specifies the Kubernetes ServiceAccount
                   to use for agent pods.

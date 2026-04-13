@@ -11,6 +11,7 @@ import (
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope="Namespaced",shortName=ag
+// +kubebuilder:printcolumn:JSONPath=`.spec.runtime`,name="Runtime",type=string
 // +kubebuilder:printcolumn:JSONPath=`.spec.profile`,name="Profile",type=string,priority=1
 // +kubebuilder:printcolumn:JSONPath=`.spec.executorImage`,name="Image",type=string,priority=1
 // +kubebuilder:printcolumn:JSONPath=`.spec.serviceAccountName`,name="ServiceAccount",type=string
@@ -19,8 +20,8 @@ import (
 // +kubebuilder:printcolumn:JSONPath=`.metadata.creationTimestamp`,name="Age",type=date
 
 // Agent defines a running AI agent instance.
-// When created, the controller provisions a Deployment (running OpenCode server) and a Service.
-// Tasks reference Agents via agentRef and connect using `opencode run --attach`.
+// When created, the controller provisions a Deployment (running the selected runtime's server) and a Service.
+// Tasks reference Agents via agentRef and connect to the server.
 type Agent struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -66,7 +67,7 @@ type TaskStartRecord struct {
 // PersistenceConfig controls persistent storage for Agents.
 // Session and workspace persistence are configured independently.
 type PersistenceConfig struct {
-	// Sessions enables persistent storage for OpenCode session data (SQLite DB).
+	// Sessions enables persistent storage for session data (SQLite DB).
 	// A PVC is created to store the session database, so conversation
 	// history survives server pod restarts.
 	// +optional
@@ -141,23 +142,32 @@ type AgentSpec struct {
 	// +optional
 	Profile string `json:"profile,omitempty"`
 
-	// AgentImage specifies the OpenCode init container image.
-	// This image contains the OpenCode binary that gets copied to /tools volume.
-	// The init container runs this image and copies the opencode binary to /tools/opencode.
+	// Runtime selects the coding agent runtime for task execution.
+	// Supported values: "opencode" (default), "crush".
+	// This determines which binary is used, how configuration is injected,
+	// and which CLI flags are passed when running tasks.
+	// +kubebuilder:validation:Enum=opencode;crush
+	// +kubebuilder:default=opencode
+	// +optional
+	Runtime string `json:"runtime,omitempty"`
+
+	// AgentImage specifies the runtime init container image.
+	// This image contains the runtime binary that gets copied to the /tools volume.
+	// The init container runs this image and copies the runtime binary to /tools/.
 	// If not specified, defaults to "ghcr.io/kubeopencode/kubeopencode-agent-opencode:latest".
 	// +optional
 	AgentImage string `json:"agentImage,omitempty"`
 
 	// ExecutorImage specifies the main worker container image for task execution.
 	// This is the development environment where tasks actually run.
-	// The container uses /tools/opencode (provided by agentImage init container) to execute AI tasks.
+	// The container uses the runtime binary (provided by agentImage init container) to execute AI tasks.
 	// If not specified, defaults to "ghcr.io/kubeopencode/kubeopencode-agent-devbox:latest".
 	// +optional
 	ExecutorImage string `json:"executorImage,omitempty"`
 
 	// AttachImage specifies the lightweight image used for --attach Pods.
-	// Tasks using agentRef create Pods that run `opencode run --attach <server-url>`.
-	// These Pods only need the OpenCode binary and network access, not the full development
+	// Tasks using agentRef create Pods that connect to a persistent server.
+	// These Pods only need the runtime binary and network access, not the full development
 	// environment. Using a minimal image (~25MB) instead of devbox (~1GB) significantly
 	// reduces image pull time and resource usage.
 	//
@@ -176,15 +186,14 @@ type AgentSpec struct {
 	// Command specifies the entrypoint command for the agent container.
 	// This is optional and overrides the default ENTRYPOINT of the container image.
 	//
-	// If not specified, defaults to:
-	//   ["sh", "-c", "/tools/opencode run \"$(cat ${WORKSPACE_DIR}/task.md)\""]
+	// If not specified, the default command is generated based on the selected runtime.
 	//
 	// The command defines HOW the agent executes tasks. Most users should not
 	// need to customize this. Override only if you need custom execution behavior.
 	//
 	// ## Example
 	//
-	//   command: ["sh", "-c", "/tools/opencode run --format json \"$(cat /workspace/task.md)\""]
+	//   command: ["sh", "-c", "/tools/<runtime> run --format json \"$(cat /workspace/task.md)\""]
 	//
 	// +optional
 	Command []string `json:"command,omitempty"`
@@ -215,12 +224,11 @@ type AgentSpec struct {
 	// +optional
 	Skills []SkillSource `json:"skills,omitempty"`
 
-	// Config provides OpenCode configuration as a JSON string.
-	// This configuration is written to /tools/opencode.json and the OPENCODE_CONFIG
+	// Config provides runtime configuration as a JSON string.
+	// This configuration is written to a config file and the appropriate
 	// environment variable is set to point to this file.
 	//
-	// The config should be a valid JSON object compatible with OpenCode's config schema.
-	// See: https://opencode.ai/config.json for the schema.
+	// The config should be a valid JSON object compatible with the runtime's config schema.
 	//
 	// Example:
 	//   config: |
@@ -336,8 +344,8 @@ type AgentSpec struct {
 	// +optional
 	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
 
-	// Port is the port OpenCode server listens on inside the Agent's Deployment.
-	// Tasks connect to the Agent via this port using `opencode run --attach`.
+	// Port is the port the runtime server listens on inside the Agent's Deployment.
+	// Tasks connect to the Agent via this port.
 	// Defaults to 4096 if not specified.
 	// +optional
 	// +kubebuilder:default=4096
@@ -438,9 +446,9 @@ type AgentStatus struct {
 	// +optional
 	ServiceName string `json:"serviceName,omitempty"`
 
-	// URL is the in-cluster URL to reach the Agent's OpenCode server.
+	// URL is the in-cluster URL to reach the Agent's runtime server.
 	// Format: "http://{service-name}.{namespace}.svc.cluster.local:{port}"
-	// Tasks use this URL with `opencode run --attach` to connect to the Agent.
+	// Tasks use this URL to connect to the Agent.
 	// +optional
 	URL string `json:"url,omitempty"`
 

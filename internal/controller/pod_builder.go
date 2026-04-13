@@ -21,14 +21,15 @@ import (
 
 // agentConfig holds the resolved configuration from Agent or AgentTemplate
 type agentConfig struct {
-	agentImage         string   // OpenCode init container image (copies binary to /tools)
+	runtime            string   // "opencode" or "crush"
+	agentImage         string   // Runtime init container image (copies binary to /tools)
 	executorImage      string   // Worker container image for task execution
 	attachImage        string   // Lightweight image for --attach Pods
 	command            []string // Command for agent container (optional, has default)
 	workspaceDir       string
 	contexts           []kubeopenv1alpha1.ContextItem
 	skills             []kubeopenv1alpha1.SkillSource
-	config             *string // OpenCode config JSON string
+	config             *string // Runtime config JSON string
 	credentials        []kubeopenv1alpha1.Credential
 	podSpec            *kubeopenv1alpha1.AgentPodSpec
 	serviceAccountName string
@@ -47,6 +48,7 @@ type agentConfig struct {
 // ResolveAgentConfig extracts configuration from the Agent spec.
 func ResolveAgentConfig(agent *kubeopenv1alpha1.Agent) agentConfig {
 	return agentConfig{
+		runtime:            defaultString(agent.Spec.Runtime, "opencode"),
 		agentImage:         defaultString(agent.Spec.AgentImage, DefaultAgentImage),
 		executorImage:      defaultString(agent.Spec.ExecutorImage, DefaultExecutorImage),
 		attachImage:        defaultString(agent.Spec.AttachImage, DefaultAttachImage),

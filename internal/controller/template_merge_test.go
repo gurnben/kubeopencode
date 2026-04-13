@@ -481,6 +481,66 @@ func TestMergeAgentWithTemplate(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "runtime is inherited from template when agent doesn't set it",
+			agent: &kubeopenv1alpha1.Agent{
+				Spec: kubeopenv1alpha1.AgentSpec{
+					WorkspaceDir:       "/workspace",
+					ServiceAccountName: "sa",
+				},
+			},
+			template: &kubeopenv1alpha1.AgentTemplate{
+				Spec: kubeopenv1alpha1.AgentTemplateSpec{
+					Runtime:      "crush",
+					WorkspaceDir: "/workspace",
+				},
+			},
+			check: func(t *testing.T, cfg agentConfig) {
+				if cfg.runtime != "crush" {
+					t.Errorf("expected runtime=crush, got %s", cfg.runtime)
+				}
+			},
+		},
+		{
+			name: "agent runtime overrides template runtime",
+			agent: &kubeopenv1alpha1.Agent{
+				Spec: kubeopenv1alpha1.AgentSpec{
+					Runtime:            "opencode",
+					WorkspaceDir:       "/workspace",
+					ServiceAccountName: "sa",
+				},
+			},
+			template: &kubeopenv1alpha1.AgentTemplate{
+				Spec: kubeopenv1alpha1.AgentTemplateSpec{
+					Runtime:      "crush",
+					WorkspaceDir: "/workspace",
+				},
+			},
+			check: func(t *testing.T, cfg agentConfig) {
+				if cfg.runtime != "opencode" {
+					t.Errorf("expected runtime=opencode, got %s", cfg.runtime)
+				}
+			},
+		},
+		{
+			name: "runtime defaults to opencode when neither agent nor template set it",
+			agent: &kubeopenv1alpha1.Agent{
+				Spec: kubeopenv1alpha1.AgentSpec{
+					WorkspaceDir:       "/workspace",
+					ServiceAccountName: "sa",
+				},
+			},
+			template: &kubeopenv1alpha1.AgentTemplate{
+				Spec: kubeopenv1alpha1.AgentTemplateSpec{
+					WorkspaceDir: "/workspace",
+				},
+			},
+			check: func(t *testing.T, cfg agentConfig) {
+				if cfg.runtime != "opencode" {
+					t.Errorf("expected runtime=opencode (default), got %s", cfg.runtime)
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {

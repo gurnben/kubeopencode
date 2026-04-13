@@ -40,8 +40,16 @@ type AgentTemplate struct {
 //   - Scalar/pointer fields: Agent wins if non-zero/non-nil, else template value is used
 //   - List fields (contexts, credentials, imagePullSecrets): Agent replaces template if non-nil
 type AgentTemplateSpec struct {
-	// AgentImage specifies the OpenCode init container image.
-	// This image contains the OpenCode binary that gets copied to /tools volume.
+	// Runtime selects the coding agent runtime for Agents derived from this template.
+	// Supported values: "opencode" (default), "crush".
+	// Agents can override this value in their own spec.
+	// +kubebuilder:validation:Enum=opencode;crush
+	// +kubebuilder:default=opencode
+	// +optional
+	Runtime string `json:"runtime,omitempty"`
+
+	// AgentImage specifies the runtime init container image.
+	// This image contains the runtime binary that gets copied to the /tools volume.
 	// If not specified, defaults to "ghcr.io/kubeopencode/kubeopencode-agent-opencode:latest".
 	// +optional
 	AgentImage string `json:"agentImage,omitempty"`
@@ -64,8 +72,7 @@ type AgentTemplateSpec struct {
 	WorkspaceDir string `json:"workspaceDir"`
 
 	// Command specifies the entrypoint command for the agent container.
-	// If not specified, defaults to:
-	//   ["sh", "-c", "/tools/opencode run \"$(cat ${WORKSPACE_DIR}/task.md)\""]
+	// If not specified, the default command is generated based on the selected runtime.
 	// +optional
 	Command []string `json:"command,omitempty"`
 
@@ -78,7 +85,7 @@ type AgentTemplateSpec struct {
 	// +optional
 	Skills []SkillSource `json:"skills,omitempty"`
 
-	// Config provides OpenCode configuration as a JSON string.
+	// Config provides runtime configuration as a JSON string.
 	// +optional
 	Config *string `json:"config,omitempty"`
 

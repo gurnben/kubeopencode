@@ -17,6 +17,9 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
+    - jsonPath: .spec.runtime
+      name: Runtime
+      type: string
     - jsonPath: .spec.profile
       name: Profile
       priority: 1
@@ -43,8 +46,8 @@ spec:
       openAPIV3Schema:
         description: |-
           Agent defines a running AI agent instance.
-          When created, the controller provisions a Deployment (running OpenCode server) and a Service.
-          Tasks reference Agents via agentRef and connect using `opencode run --attach`.
+          When created, the controller provisions a Deployment (running the selected runtime's server) and a Service.
+          Tasks reference Agents via agentRef and connect to the server.
         properties:
           apiVersion:
             description: |-
@@ -68,16 +71,16 @@ spec:
             properties:
               agentImage:
                 description: |-
-                  AgentImage specifies the OpenCode init container image.
-                  This image contains the OpenCode binary that gets copied to /tools volume.
-                  The init container runs this image and copies the opencode binary to /tools/opencode.
+                  AgentImage specifies the runtime init container image.
+                  This image contains the runtime binary that gets copied to the /tools volume.
+                  The init container runs this image and copies the runtime binary to /tools/.
                   If not specified, defaults to "ghcr.io/kubeopencode/kubeopencode-agent-opencode:latest".
                 type: string
               attachImage:
                 description: |-
                   AttachImage specifies the lightweight image used for --attach Pods.
-                  Tasks using agentRef create Pods that run `opencode run --attach <server-url>`.
-                  These Pods only need the OpenCode binary and network access, not the full development
+                  Tasks using agentRef create Pods that connect to a persistent server.
+                  These Pods only need the runtime binary and network access, not the full development
                   environment. Using a minimal image (~25MB) instead of devbox (~1GB) significantly
                   reduces image pull time and resource usage.
 
@@ -139,26 +142,24 @@ spec:
                   Command specifies the entrypoint command for the agent container.
                   This is optional and overrides the default ENTRYPOINT of the container image.
 
-                  If not specified, defaults to:
-                    ["sh", "-c", "/tools/opencode run \"$(cat ${WORKSPACE_DIR}/task.md)\""]
+                  If not specified, the default command is generated based on the selected runtime.
 
                   The command defines HOW the agent executes tasks. Most users should not
                   need to customize this. Override only if you need custom execution behavior.
 
                   ## Example
 
-                    command: ["sh", "-c", "/tools/opencode run --format json \"$(cat /workspace/task.md)\""]
+                    command: ["sh", "-c", "/tools/<runtime> run --format json \"$(cat /workspace/task.md)\""]
                 items:
                   type: string
                 type: array
               config:
                 description: |-
-                  Config provides OpenCode configuration as a JSON string.
-                  This configuration is written to /tools/opencode.json and the OPENCODE_CONFIG
+                  Config provides runtime configuration as a JSON string.
+                  This configuration is written to a config file and the appropriate
                   environment variable is set to point to this file.
 
-                  The config should be a valid JSON object compatible with OpenCode's config schema.
-                  See: https://opencode.ai/config.json for the schema.
+                  The config should be a valid JSON object compatible with the runtime's config schema.
 
                   Example:
                     config: |
@@ -488,7 +489,7 @@ spec:
                 description: |-
                   ExecutorImage specifies the main worker container image for task execution.
                   This is the development environment where tasks actually run.
-                  The container uses /tools/opencode (provided by agentImage init container) to execute AI tasks.
+                  The container uses the runtime binary (provided by agentImage init container) to execute AI tasks.
                   If not specified, defaults to "ghcr.io/kubeopencode/kubeopencode-agent-devbox:latest".
                 type: string
               extraPorts:
@@ -594,7 +595,7 @@ spec:
                 properties:
                   sessions:
                     description: |-
-                      Sessions enables persistent storage for OpenCode session data (SQLite DB).
+                      Sessions enables persistent storage for session data (SQLite DB).
                       A PVC is created to store the session database, so conversation
                       history survives server pod restarts.
                     properties:
@@ -2437,8 +2438,8 @@ spec:
               port:
                 default: 4096
                 description: |-
-                  Port is the port OpenCode server listens on inside the Agent's Deployment.
-                  Tasks connect to the Agent via this port using `opencode run --attach`.
+                  Port is the port the runtime server listens on inside the Agent's Deployment.
+                  Tasks connect to the Agent via this port.
                   Defaults to 4096 if not specified.
                 format: int32
                 maximum: 65535
@@ -2521,6 +2522,17 @@ spec:
                 - maxTaskStarts
                 - windowSeconds
                 type: object
+              runtime:
+                default: opencode
+                description: |-
+                  Runtime selects the coding agent runtime for task execution.
+                  Supported values: "opencode" (default), "crush".
+                  This determines which binary is used, how configuration is injected,
+                  and which CLI flags are passed when running tasks.
+                enum:
+                - opencode
+                - crush
+                type: string
               serviceAccountName:
                 description: |-
                   ServiceAccountName specifies the Kubernetes ServiceAccount to use for agent pods.
@@ -2911,9 +2923,9 @@ spec:
                 x-kubernetes-list-type: atomic
               url:
                 description: |-
-                  URL is the in-cluster URL to reach the Agent's OpenCode server.
+                  URL is the in-cluster URL to reach the Agent's runtime server.
                   Format: "http://{service-name}.{namespace}.svc.cluster.local:{port}"
-                  Tasks use this URL with `opencode run --attach` to connect to the Agent.
+                  Tasks use this URL to connect to the Agent.
                 type: string
             type: object
         required:
