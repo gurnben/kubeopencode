@@ -47,9 +47,10 @@ type agentConfig struct {
 
 // ResolveAgentConfig extracts configuration from the Agent spec.
 func ResolveAgentConfig(agent *kubeopenv1alpha1.Agent) agentConfig {
+	profile := GetRuntimeProfile(agent.Spec.Runtime)
 	return agentConfig{
 		runtime:            defaultString(agent.Spec.Runtime, "opencode"),
-		agentImage:         defaultString(agent.Spec.AgentImage, DefaultAgentImage),
+		agentImage:         defaultString(agent.Spec.AgentImage, profile.DefaultAgentImage),
 		executorImage:      defaultString(agent.Spec.ExecutorImage, DefaultExecutorImage),
 		attachImage:        defaultString(agent.Spec.AttachImage, DefaultAttachImage),
 		command:            agent.Spec.Command,
@@ -79,8 +80,10 @@ func ResolveAgentConfig(agent *kubeopenv1alpha1.Agent) agentConfig {
 // templateRef tasks have no persistent Agent to enforce limits against.
 // port, persistence, and suspend are also not applicable for ephemeral Pods.
 func ResolveTemplateToConfig(tmpl *kubeopenv1alpha1.AgentTemplate) agentConfig {
+	profile := GetRuntimeProfile(tmpl.Spec.Runtime)
 	return agentConfig{
-		agentImage:         defaultString(tmpl.Spec.AgentImage, DefaultAgentImage),
+		runtime:            defaultString(tmpl.Spec.Runtime, "opencode"),
+		agentImage:         defaultString(tmpl.Spec.AgentImage, profile.DefaultAgentImage),
 		executorImage:      defaultString(tmpl.Spec.ExecutorImage, DefaultExecutorImage),
 		attachImage:        defaultString(tmpl.Spec.AttachImage, DefaultAttachImage),
 		command:            tmpl.Spec.Command,
@@ -224,7 +227,7 @@ func defaultString(val, defaultVal string) string {
 
 const (
 	// DefaultAgentImage is the default OpenCode init container image.
-	// This image copies the OpenCode binary to /tools volume.
+	// Deprecated: Use RuntimeProfile.DefaultAgentImage instead.
 	DefaultAgentImage = "ghcr.io/kubeopencode/kubeopencode-agent-opencode:latest"
 
 	// DefaultExecutorImage is the default worker container image for task execution.
@@ -232,15 +235,15 @@ const (
 	DefaultExecutorImage = "ghcr.io/kubeopencode/kubeopencode-agent-devbox:latest"
 
 	// DefaultAttachImage is the lightweight image for Server-mode --attach Pods.
-	// This minimal image (~25MB) contains only the OpenCode binary + shell + CA certs.
-	// Used when Tasks connect to a persistent OpenCode server via --attach flag.
+	// This minimal image (~25MB) contains only the runtime binary + shell + CA certs.
+	// Used when Tasks connect to a persistent runtime server via --attach flag.
 	DefaultAttachImage = "ghcr.io/kubeopencode/kubeopencode-agent-attach:latest"
 
 	// DefaultKubeOpenCodeImage is the default kubeopencode container image.
 	// This unified image provides: controller, git-init (Git clone), etc.
 	DefaultKubeOpenCodeImage = "ghcr.io/kubeopencode/kubeopencode:latest"
 
-	// ToolsVolumeName is the volume name for sharing OpenCode binary between containers
+	// ToolsVolumeName is the volume name for sharing the runtime binary between containers
 	ToolsVolumeName = "tools"
 
 	// WorkspaceVolumeName is the volume name for the writable workspace
@@ -251,37 +254,32 @@ const (
 
 	// OpenCodeSymlinkCmd creates a symlink so that the OpenCode binary is discoverable
 	// from interactive terminals (e.g. VS Code) without requiring /tools in PATH.
-	// Uses "|| true" to gracefully handle read-only root filesystems.
+	// Deprecated: Use RuntimeProfile.SymlinkCmd() instead.
 	OpenCodeSymlinkCmd = "ln -sf /tools/opencode /usr/local/bin/opencode 2>/dev/null || true"
 
-	// OpenCodeConfigPath is the path where OpenCode config is written
+	// OpenCodeConfigPath is the path where OpenCode config is written.
+	// Deprecated: Use RuntimeProfile.ConfigPath() instead.
 	OpenCodeConfigPath = "/tools/opencode.json"
 
-	// OpenCodeConfigEnvVar is the environment variable name for OpenCode config path
+	// OpenCodeConfigEnvVar is the environment variable name for OpenCode config path.
+	// Deprecated: Use RuntimeProfile.ConfigEnvVar instead.
 	OpenCodeConfigEnvVar = "OPENCODE_CONFIG"
 
-	// OpenCodeConfigContentEnvVar is the environment variable for injecting config content
-	// This is used to inject instructions for loading context files without conflicting
-	// with repository's AGENTS.md. OpenCode merges OPENCODE_CONFIG_CONTENT with OPENCODE_CONFIG.
+	// OpenCodeConfigContentEnvVar is the environment variable for injecting config content.
+	// Deprecated: Use RuntimeProfile.ConfigContentEnvVar instead.
 	OpenCodeConfigContentEnvVar = "OPENCODE_CONFIG_CONTENT"
 
 	// OpenCodePermissionEnvVar is the environment variable for OpenCode permission configuration.
-	// This allows overriding permission settings to enable non-interactive/automated mode.
-	// The value is a JSON object mapping tool names to permission actions (allow/ask/deny).
+	// Deprecated: Use RuntimeProfile.PermissionEnvVar instead.
 	OpenCodePermissionEnvVar = "OPENCODE_PERMISSION"
 
 	// DefaultOpenCodePermission is the default permission configuration for automated execution.
-	// In Kubernetes/CI environments, we need to allow all permissions to avoid interactive prompts
-	// that would block task execution. Users can still restrict permissions via Agent.spec.config.
-	//
-	// The value must be valid JSON since OpenCode parses it with JSON.parse().
-	// {"*":"allow"} sets all tools to "allow" mode, enabling full autonomous operation.
-	// For restricted permissions, users should configure them in Agent.spec.config's permission field.
+	// Deprecated: Use RuntimeProfile.DefaultPermissionValue instead.
 	DefaultOpenCodePermission = `{"*":"allow"}`
 
 	// ContextFileRelPath is the relative path (from workspaceDir) for KubeOpenCode context file.
 	// This path is chosen to avoid conflicts with repository's AGENTS.md or CLAUDE.md files.
-	// OpenCode loads this file via the instructions config injected through OPENCODE_CONFIG_CONTENT.
+	// The runtime loads this file via the instructions config injected through the config content env var.
 	ContextFileRelPath = ".kubeopencode/context.md"
 
 	// DefaultMemoryLimit is the default memory limit for agent containers.
@@ -359,17 +357,17 @@ func inferImagePullPolicy(image string) corev1.PullPolicy {
 	return corev1.PullIfNotPresent
 }
 
-// buildOpenCodeInitContainer creates an init container that copies OpenCode binary to /tools.
+// buildRuntimeInitContainer creates an init container that copies the runtime binary to /tools.
 // This enables the two-container pattern where:
-// - Init container (agentImage): Contains OpenCode, copies it to /tools
-// - Worker container (executorImage): Uses /tools/opencode to execute tasks
-func buildOpenCodeInitContainer(agentImage string) corev1.Container {
+// - Init container (agentImage): Contains the runtime binary, copies it to /tools
+// - Worker container (executorImage): Uses /tools/<binary> to execute tasks
+func buildRuntimeInitContainer(agentImage string, profile *RuntimeProfile) corev1.Container {
 	return corev1.Container{
-		Name:            "opencode-init",
+		Name:            profile.InitContainerName,
 		Image:           agentImage,
 		ImagePullPolicy: inferImagePullPolicy(agentImage),
-		// Uses default entrypoint from agents/opencode/entrypoint.sh
-		// which copies /opencode to ${TOOLS_DIR}/opencode
+		// Uses default entrypoint from the runtime agent's entrypoint.sh
+		// which copies the binary to ${TOOLS_DIR}/
 		Env: []corev1.EnvVar{
 			{Name: "TOOLS_DIR", Value: ToolsMountPath},
 		},
@@ -815,16 +813,17 @@ func defaultSecurityContext() *corev1.SecurityContext {
 // buildPod creates a Pod object for the task with context mounts.
 // The Pod is created in the same namespace as the Task.
 // The serverURL parameter is used for Server-mode Agents: when non-empty, the Pod will use
-// `opencode run --attach <serverURL>` to connect to an existing OpenCode server instead of
+// the runtime's run command to connect to an existing server instead of
 // running a standalone instance.
 func buildPod(task *kubeopenv1alpha1.Task, podName string, cfg agentConfig, contextConfigMap *corev1.ConfigMap, fileMounts []fileMount, dirMounts []dirMount, gitMounts []gitMount, sysCfg systemConfig, serverURL string) *corev1.Pod {
 	var volumes []corev1.Volume
 	var volumeMounts []corev1.VolumeMount
 	var envVars []corev1.EnvVar
 	var initContainers []corev1.Container
+	profile := GetRuntimeProfile(cfg.runtime)
 
-	// Add tools volume for sharing OpenCode binary between init and worker containers.
-	// The OpenCode init container copies the binary to /tools, and the worker container uses it.
+	// Add tools volume for sharing the runtime binary between init and worker containers.
+	// The init container copies the binary to /tools, and the worker container uses it.
 	volumes = append(volumes, corev1.Volume{
 		Name: ToolsVolumeName,
 		VolumeSource: corev1.VolumeSource{
@@ -836,8 +835,8 @@ func buildPod(task *kubeopenv1alpha1.Task, podName string, cfg agentConfig, cont
 		MountPath: ToolsMountPath,
 	})
 
-	// Add OpenCode init container FIRST - it copies the OpenCode binary to /tools
-	initContainers = append(initContainers, buildOpenCodeInitContainer(cfg.agentImage))
+	// Add runtime init container FIRST - it copies the runtime binary to /tools
+	initContainers = append(initContainers, buildRuntimeInitContainer(cfg.agentImage, profile))
 
 	// Always add workspace emptyDir volume for writable workspace.
 	// This is essential for SCC environments where containers run with random UIDs
@@ -862,50 +861,51 @@ func buildPod(task *kubeopenv1alpha1.Task, podName string, cfg agentConfig, cont
 	envVars = append(envVars,
 		corev1.EnvVar{Name: "HOME", Value: DefaultHomeDir},
 		corev1.EnvVar{Name: "SHELL", Value: DefaultShell},
-		// Prepend /tools to PATH so the OpenCode binary is discoverable from interactive terminals.
+		// Prepend /tools to PATH so the runtime binary is discoverable from interactive terminals.
 		corev1.EnvVar{Name: "PATH", Value: ToolsMountPath + ":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"},
 		corev1.EnvVar{Name: "TASK_NAME", Value: task.Name},
 		corev1.EnvVar{Name: "TASK_NAMESPACE", Value: task.Namespace},
 		corev1.EnvVar{Name: "WORKSPACE_DIR", Value: cfg.workspaceDir},
 	)
 
-	// If OpenCode config is provided or skills are configured, set OPENCODE_CONFIG env var.
+	// If config is provided or skills are configured, set config env var.
 	// Skills require the config file because skills.paths is injected into it.
-	if (cfg.config != nil && *cfg.config != "") || len(cfg.skills) > 0 {
+	if profile.ConfigEnvVar != "" && ((cfg.config != nil && *cfg.config != "") || len(cfg.skills) > 0) {
 		envVars = append(envVars, corev1.EnvVar{
-			Name:  OpenCodeConfigEnvVar,
-			Value: OpenCodeConfigPath,
+			Name:  profile.ConfigEnvVar,
+			Value: profile.ConfigPath(),
 		})
 	}
 
-	// Set OPENCODE_PERMISSION to enable all permissions by default.
+	// Set permission env var to enable all permissions by default.
 	// This is required for non-interactive/automated execution in Kubernetes.
-	// Without this, OpenCode would prompt for permission approval which would
-	// block task execution in a Pod environment.
 	// If the Agent config contains a "permission" field, skip the default to let
 	// the user's custom permission config take effect (e.g., for interactive sessions).
-	if !configHasPermission(cfg.config) {
+	if profile.PermissionEnvVar != "" && !configHasPermission(cfg.config) {
 		envVars = append(envVars, corev1.EnvVar{
-			Name:  OpenCodePermissionEnvVar,
-			Value: DefaultOpenCodePermission,
+			Name:  profile.PermissionEnvVar,
+			Value: profile.DefaultPermissionValue,
 		})
 	}
 
-	// Check if context file is being mounted and inject OPENCODE_CONFIG_CONTENT.
-	// This allows OpenCode to load KubeOpenCode's context file without conflicting
+	// Check if context file is being mounted and inject config content env var.
+	// This allows the runtime to load KubeOpenCode's context file without conflicting
 	// with repository's AGENTS.md. The context file path is relative to workspaceDir.
-	contextFilePath := cfg.workspaceDir + "/" + ContextFileRelPath
-	for _, fm := range fileMounts {
-		if fm.filePath == contextFilePath {
-			// Inject instructions to load the context file
-			// OpenCode will merge this with OPENCODE_CONFIG (if set)
-			envVars = append(envVars, corev1.EnvVar{
-				Name:  OpenCodeConfigContentEnvVar,
-				Value: `{"instructions":["` + ContextFileRelPath + `"]}`,
-			})
-			break
+	if profile.ConfigContentEnvVar != "" {
+		contextFilePath := cfg.workspaceDir + "/" + ContextFileRelPath
+		for _, fm := range fileMounts {
+			if fm.filePath == contextFilePath {
+				envVars = append(envVars, corev1.EnvVar{
+					Name:  profile.ConfigContentEnvVar,
+					Value: `{"instructions":["` + ContextFileRelPath + `"]}`,
+				})
+				break
+			}
 		}
 	}
+
+	// Inject runtime-specific extra env vars
+	envVars = append(envVars, profile.ExtraEnvVars...)
 
 	// Add credentials (secrets as env vars or file mounts)
 	vols, mounts, envs, envFroms := buildCredentials(cfg.credentials)
@@ -974,9 +974,9 @@ func buildPod(task *kubeopenv1alpha1.Task, podName string, cfg agentConfig, cont
 			MountPath: cfg.workspaceDir,
 		})
 
-		// If OpenCode config is provided, mount /tools volume in context-init
+		// If runtime config is provided, mount /tools volume in context-init
 		// so it can write the config file. The /tools volume is already created
-		// for sharing the OpenCode binary between containers.
+		// for sharing the runtime binary between containers.
 		if cfg.config != nil && *cfg.config != "" {
 			contextInit.VolumeMounts = append(contextInit.VolumeMounts, corev1.VolumeMount{
 				Name:      ToolsVolumeName,
@@ -991,7 +991,7 @@ func buildPod(task *kubeopenv1alpha1.Task, podName string, cfg agentConfig, cont
 		for _, fm := range fileMounts {
 			if !isUnderPath(fm.filePath, cfg.workspaceDir) {
 				parentDir := getParentDir(fm.filePath)
-				// Skip /tools as it already exists for the OpenCode binary
+				// Skip /tools as it already exists for the runtime binary
 				if parentDir == ToolsMountPath {
 					continue
 				}
@@ -1161,31 +1161,15 @@ func buildPod(task *kubeopenv1alpha1.Task, podName string, cfg agentConfig, cont
 	}
 
 	// Build agent container using executorImage (the worker container)
-	// The OpenCode binary is available at /tools/opencode from the init container
+	// The runtime binary is available at /tools/ from the init container
 	// Use custom command if provided, otherwise use default
 	agentCommand := cfg.command
 	if len(agentCommand) == 0 {
-		// Generate session title: task name + random suffix for uniqueness.
-		// This makes sessions identifiable in the OpenCode Web UI and enables
-		// future human-in-the-loop workflows (resuming sessions by title).
 		sessionTitle := sessionTitle(task)
-		if serverURL != "" {
-			// agentRef path: use --attach flag to connect to the Agent's OpenCode server.
-			// Tasks are non-interactive — all permissions are auto-allowed via
-			// OPENCODE_PERMISSION env var on the server, so no permission.asked
-			// events are generated. This gives natural OpenCode TUI-style output
-			// in pod logs.
-			// For interactive sessions, users use `opencode attach` directly.
-			agentCommand = []string{
-				"sh", "-c",
-				fmt.Sprintf(`%s; /tools/opencode run --attach %s --title %s "$(cat %s/task.md)"`, OpenCodeSymlinkCmd, serverURL, shellEscape(sessionTitle), cfg.workspaceDir),
-			}
-		} else {
-			// templateRef path: run standalone OpenCode instance
-			agentCommand = []string{
-				"sh", "-c",
-				fmt.Sprintf(`%s; /tools/opencode run --title %s "$(cat %s/task.md)"`, OpenCodeSymlinkCmd, shellEscape(sessionTitle), cfg.workspaceDir),
-			}
+		runCmd := profile.BuildRunCommand(cfg.workspaceDir, shellEscape(sessionTitle), serverURL)
+		agentCommand = []string{
+			"sh", "-c",
+			fmt.Sprintf(`%s; %s`, profile.SymlinkCmd(), runCmd),
 		}
 	}
 	// Determine executor image: use lightweight attach image only for agentRef tasks
@@ -1195,7 +1179,7 @@ func buildPod(task *kubeopenv1alpha1.Task, podName string, cfg agentConfig, cont
 	executorImage := cfg.executorImage
 	if serverURL != "" && cfg.attachImage != "" && len(cfg.command) == 0 {
 		// agentRef with default command: use lightweight attach image (~25MB) instead
-		// of devbox (~1GB). The attach image only needs the OpenCode binary since
+		// of devbox (~1GB). The attach image only needs the runtime binary since
 		// actual execution happens in the persistent server's environment.
 		executorImage = cfg.attachImage
 	}
@@ -1295,7 +1279,7 @@ func buildPod(task *kubeopenv1alpha1.Task, podName string, cfg agentConfig, cont
 	return pod
 }
 
-// configHasPermission checks if the Agent's OpenCode config JSON contains
+// configHasPermission checks if the Agent's runtime config JSON contains
 // a "permission" field. When present, the user has explicitly configured
 // permissions (e.g., for interactive sessions), so we should not override with the default
 // all-allow environment variable.
@@ -1311,7 +1295,7 @@ func configHasPermission(config *string) bool {
 	return ok
 }
 
-// sessionTitle generates a session title for the OpenCode session.
+// sessionTitle generates a session title for the runtime session.
 // Format: "{task-name}-{8-char-random-hex}"
 func sessionTitle(task *kubeopenv1alpha1.Task) string {
 	return fmt.Sprintf("%s-%s", task.Name, randomHex(4))

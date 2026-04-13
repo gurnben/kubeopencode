@@ -71,9 +71,8 @@ To get Task status:
 
 ### File Structure
 - ${WORKSPACE_DIR}/task.md: Your task instructions (description only)
-- ${WORKSPACE_DIR}/.kubeopencode/context.md: KubeOpenCode context (loaded via OpenCode instructions)
+- ${WORKSPACE_DIR}/.kubeopencode/context.md: KubeOpenCode context (loaded via runtime instructions config)
 - Additional contexts may be mounted as separate files
-- Note: Repository's AGENTS.md/CLAUDE.md files are preserved and loaded by OpenCode automatically
 
 ### KubeOpenCode Concepts
 - Task: Single AI task execution (what you're running now)

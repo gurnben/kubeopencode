@@ -22,13 +22,14 @@ const (
 	ServerDeploymentSuffix = "-server"
 
 	// ServerContainerName is the name of the main container in the server Deployment.
+	// Deprecated: Use RuntimeProfile.ServerContainerName instead.
 	ServerContainerName = "opencode-server"
 
-	// DefaultServerPort is the default port for OpenCode server.
+	// DefaultServerPort is the default port for the runtime server.
 	DefaultServerPort int32 = 4096
 
 	// ServerHealthPath is the path used for readiness probes.
-	// OpenCode's /session/status endpoint returns 200 if the server is healthy.
+	// Deprecated: Use RuntimeProfile.HealthPath instead.
 	ServerHealthPath = "/session/status"
 
 	// ServerSessionPVCSuffix is appended to Agent name for the session PVC name.
@@ -40,13 +41,15 @@ const (
 	// ServerSessionMountPath is where the session PVC is mounted in the server container.
 	ServerSessionMountPath = "/data/sessions"
 
-	// ServerSessionDBPath is the full path to the OpenCode session database.
+	// ServerSessionDBPath is the full path to the session database.
+	// Deprecated: Compute from ServerSessionMountPath + "/" + profile.SessionDBName instead.
 	ServerSessionDBPath = ServerSessionMountPath + "/opencode.db"
 
 	// DefaultSessionPVCSize is the default size for the session PVC.
 	DefaultSessionPVCSize = "1Gi"
 
 	// OpenCodeDBEnvVar is the environment variable name for the OpenCode database path.
+	// Deprecated: Use RuntimeProfile.DBEnvVar instead.
 	OpenCodeDBEnvVar = "OPENCODE_DB"
 
 	// ServerWorkspacePVCSuffix is appended to Agent name for the workspace PVC name.
@@ -153,7 +156,7 @@ func getServerLabels(agentName string) map[string]string {
 }
 
 // BuildServerDeployment creates a Deployment for an Agent.
-// The Deployment runs OpenCode in serve mode with a single replica.
+// The Deployment runs the runtime in serve mode with a single replica.
 // Context parameters (contextConfigMap, fileMounts, dirMounts, gitMounts) enable
 // Agent-level contexts to be loaded via init containers.
 func BuildServerDeployment(agent *kubeopenv1alpha1.Agent, agentCfg agentConfig, sysCfg systemConfig, contextConfigMap *corev1.ConfigMap, ctxFileMounts []fileMount, ctxDirMounts []dirMount, ctxGitMounts []gitMount, gitHashAnnotations map[string]string) *appsv1.Deployment {
@@ -168,35 +171,31 @@ func BuildServerDeployment(agent *kubeopenv1alpha1.Agent, agentCfg agentConfig, 
 	}
 
 	// Build environment variables
-	// HOME and SHELL are set for SCC (Security Context Constraints) compatibility.
-	// In SCC environments, containers run with random UIDs that have no /etc/passwd entry,
-	// causing HOME=/ (not writable) and SHELL=/sbin/nologin.
+	profile := GetRuntimeProfile(agentCfg.runtime)
 	envVars := []corev1.EnvVar{
 		{Name: "HOME", Value: DefaultHomeDir},
 		{Name: "SHELL", Value: DefaultShell},
-		// Prepend /tools to PATH so the OpenCode binary (copied by the init container)
+		// Prepend /tools to PATH so the runtime binary (copied by the init container)
 		// is discoverable from interactive terminals (e.g., VS Code in browser).
-		// The symlink approach (ln -sf /tools/opencode /usr/local/bin/) fails silently
+		// The symlink approach fails silently
 		// when the container runs as non-root (UID 1000) because /usr/local/bin/ is root-owned.
 		{Name: "PATH", Value: ToolsMountPath + ":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"},
 		{Name: "WORKSPACE_DIR", Value: agentCfg.workspaceDir},
 	}
 
-	// Set OPENCODE_PERMISSION only if the Agent config does not include custom permissions.
-	// When the config has a "permission" field, the user has explicitly configured
-	// permission behavior (e.g., "ask" mode for interactive sessions), so we must not override it.
-	if !configHasPermission(agentCfg.config) {
+	// Set permission env var only if the Agent config does not include custom permissions.
+	if profile.PermissionEnvVar != "" && !configHasPermission(agentCfg.config) {
 		envVars = append(envVars, corev1.EnvVar{
-			Name:  OpenCodePermissionEnvVar,
-			Value: DefaultOpenCodePermission,
+			Name:  profile.PermissionEnvVar,
+			Value: profile.DefaultPermissionValue,
 		})
 	}
 
-	// Add OpenCode config if provided, or if skills are configured (skills.paths is injected into config)
-	if agentCfg.config != nil || len(agentCfg.skills) > 0 {
+	// Add config env var if provided, or if skills are configured
+	if profile.ConfigEnvVar != "" && (agentCfg.config != nil || len(agentCfg.skills) > 0) {
 		envVars = append(envVars, corev1.EnvVar{
-			Name:  OpenCodeConfigEnvVar,
-			Value: OpenCodeConfigPath,
+			Name:  profile.ConfigEnvVar,
+			Value: profile.ConfigPath(),
 		})
 	}
 
@@ -245,10 +244,12 @@ func BuildServerDeployment(agent *kubeopenv1alpha1.Agent, agentCfg agentConfig, 
 			Name:      ServerSessionVolumeName,
 			MountPath: ServerSessionMountPath,
 		})
-		envVars = append(envVars, corev1.EnvVar{
-			Name:  OpenCodeDBEnvVar,
-			Value: ServerSessionDBPath,
-		})
+		if profile.DBEnvVar != "" {
+			envVars = append(envVars, corev1.EnvVar{
+				Name:  profile.DBEnvVar,
+				Value: ServerSessionMountPath + "/" + profile.SessionDBName,
+			})
+		}
 	}
 
 	// Add credentials (secrets as env vars or file mounts)
@@ -257,9 +258,9 @@ func BuildServerDeployment(agent *kubeopenv1alpha1.Agent, agentCfg agentConfig, 
 	volumeMounts = append(volumeMounts, credMounts...)
 	envVars = append(envVars, credEnvs...)
 
-	// Track init containers (opencode-init is always first)
+	// Track init containers (runtime init is always first)
 	var initContainers []corev1.Container
-	initContainers = append(initContainers, buildOpenCodeInitContainer(agentCfg.agentImage))
+	initContainers = append(initContainers, buildRuntimeInitContainer(agentCfg.agentImage, profile))
 
 	// Add context init containers and volumes
 	var contextInitMounts []corev1.VolumeMount
@@ -426,17 +427,22 @@ func BuildServerDeployment(agent *kubeopenv1alpha1.Agent, agentCfg agentConfig, 
 		})
 	}
 
-	// Check if context file is being mounted and inject OPENCODE_CONFIG_CONTENT
-	contextFilePath := agentCfg.workspaceDir + "/" + ContextFileRelPath
-	for _, fm := range ctxFileMounts {
-		if fm.filePath == contextFilePath {
-			envVars = append(envVars, corev1.EnvVar{
-				Name:  OpenCodeConfigContentEnvVar,
-				Value: `{"instructions":["` + ContextFileRelPath + `"]}`,
-			})
-			break
+	// Check if context file is being mounted and inject config content env var
+	if profile.ConfigContentEnvVar != "" {
+		contextFilePath := agentCfg.workspaceDir + "/" + ContextFileRelPath
+		for _, fm := range ctxFileMounts {
+			if fm.filePath == contextFilePath {
+				envVars = append(envVars, corev1.EnvVar{
+					Name:  profile.ConfigContentEnvVar,
+					Value: `{"instructions":["` + ContextFileRelPath + `"]}`,
+				})
+				break
+			}
 		}
 	}
+
+	// Inject runtime-specific extra env vars
+	envVars = append(envVars, profile.ExtraEnvVars...)
 
 	// Add custom CA bundle to all containers if configured
 	if agentCfg.caBundle != nil && (agentCfg.caBundle.ConfigMapRef != nil || agentCfg.caBundle.SecretRef != nil) {
@@ -468,25 +474,24 @@ func BuildServerDeployment(agent *kubeopenv1alpha1.Agent, agentCfg agentConfig, 
 	// Build the serve command.
 	// When context-init handles config file writing, we don't need inline heredoc.
 	hasContextInit := len(ctxFileMounts) > 0 || len(ctxDirMounts) > 0
+	serveCmd := profile.BuildServeCommand(int(port))
 	var command []string
 	if agentCfg.config != nil && *agentCfg.config != "" && !hasContextInit {
-		// No context-init container — write config inline in the command
 		command = []string{
 			"sh", "-c",
-			fmt.Sprintf("%s; cat > %s << 'KOCEOF'\n%s\nKOCEOF\n/tools/opencode serve --port %d --hostname 0.0.0.0",
-				OpenCodeSymlinkCmd, OpenCodeConfigPath, *agentCfg.config, port),
+			fmt.Sprintf("%s; cat > %s << 'KOCEOF'\n%s\nKOCEOF\n%s",
+				profile.SymlinkCmd(), profile.ConfigPath(), *agentCfg.config, serveCmd),
 		}
 	} else {
-		// Config is written by context-init, or no config at all
 		command = []string{
 			"sh", "-c",
-			fmt.Sprintf("%s; /tools/opencode serve --port %d --hostname 0.0.0.0", OpenCodeSymlinkCmd, port),
+			fmt.Sprintf("%s; %s", profile.SymlinkCmd(), serveCmd),
 		}
 	}
 
 	// Build the main container
 	container := corev1.Container{
-		Name:            ServerContainerName,
+		Name:            profile.ServerContainerName,
 		Image:           agentCfg.executorImage,
 		ImagePullPolicy: inferImagePullPolicy(agentCfg.executorImage),
 		WorkingDir:      agentCfg.workspaceDir,
@@ -502,7 +507,7 @@ func BuildServerDeployment(agent *kubeopenv1alpha1.Agent, agentCfg agentConfig, 
 		StartupProbe: &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
 				HTTPGet: &corev1.HTTPGetAction{
-					Path:   ServerHealthPath,
+					Path:   profile.HealthPath,
 					Port:   intstr.FromInt32(port),
 					Scheme: corev1.URISchemeHTTP,
 				},
@@ -525,7 +530,7 @@ func BuildServerDeployment(agent *kubeopenv1alpha1.Agent, agentCfg agentConfig, 
 		ReadinessProbe: &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
 				HTTPGet: &corev1.HTTPGetAction{
-					Path:   ServerHealthPath,
+					Path:   profile.HealthPath,
 					Port:   intstr.FromInt32(port),
 					Scheme: corev1.URISchemeHTTP,
 				},
@@ -681,7 +686,7 @@ func BuildServerService(agent *kubeopenv1alpha1.Agent) *corev1.Service {
 }
 
 // buildContainerPorts constructs the container port list for an Agent Deployment.
-// It always includes the main OpenCode server port and appends any extra ports.
+// It always includes the main runtime server port and appends any extra ports.
 func buildContainerPorts(serverPort int32, extraPorts []kubeopenv1alpha1.ExtraPort) []corev1.ContainerPort {
 	ports := []corev1.ContainerPort{
 		{
@@ -705,7 +710,7 @@ func buildContainerPorts(serverPort int32, extraPorts []kubeopenv1alpha1.ExtraPo
 }
 
 // buildServicePorts constructs the service port list for an Agent Service.
-// It always includes the main OpenCode server port and appends any extra ports.
+// It always includes the main runtime server port and appends any extra ports.
 func buildServicePorts(serverPort int32, extraPorts []kubeopenv1alpha1.ExtraPort) []corev1.ServicePort {
 	ports := []corev1.ServicePort{
 		{
