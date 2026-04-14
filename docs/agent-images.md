@@ -6,15 +6,16 @@ KubeOpenCode provides **template agent images** that serve as starting points fo
 
 KubeOpenCode uses multiple container images:
 
-1. **Init Container** (`agentImage`): Contains the OpenCode CLI, copies it to a shared `/tools` volume
-2. **Worker Container** (`executorImage`): Your development environment that runs `opencode serve` in Agent Deployments, or `opencode run` in ephemeral template-based Task Pods
-3. **Attach Container** (`attachImage`): Lightweight image (~25MB) used by Task Pods that connect to a running Agent via `opencode run --attach`
+1. **Init Container** (`agentImage`): Contains the runtime CLI (OpenCode or Crush), copies it to a shared `/tools` volume
+2. **Worker Container** (`executorImage`): Your development environment that runs the runtime binary in Agent Deployments or ephemeral Task Pods
+3. **Attach Container** (`attachImage`): Lightweight image (~25MB) used by Task Pods that connect to a running Agent
 
 ## Available Images
 
 | Image | Type | Description |
 |-------|------|-------------|
 | `opencode` | Init Container | OpenCode CLI binary |
+| `crush` | Init Container | Crush CLI binary |
 | `devbox` | Worker (Executor) | Universal development environment with Go, Node, Python, kubectl, helm |
 | `attach` | Attach Container | Lightweight image for connecting to Agent servers |
 | `echo` | Testing | Minimal Alpine image for E2E testing |
@@ -31,8 +32,16 @@ When configuring an Agent, the controller resolves images as follows:
 
 ### Default Images
 
-- OpenCode init: `ghcr.io/kubeopencode/kubeopencode-agent-opencode:latest`
-- Devbox executor: `ghcr.io/kubeopencode/kubeopencode-agent-devbox:latest`
+Default images depend on the runtime selected:
+
+**OpenCode (default):**
+- Init: `ghcr.io/kubeopencode/kubeopencode-agent-opencode:latest`
+- Executor: `ghcr.io/kubeopencode/kubeopencode-agent-devbox:latest`
+- Attach: `ghcr.io/kubeopencode/kubeopencode-agent-attach:latest`
+
+**Crush:**
+- Init: `ghcr.io/kubeopencode/kubeopencode-agent-crush:latest`
+- Executor: `ghcr.io/kubeopencode/kubeopencode-agent-devbox:latest`
 - Attach: `ghcr.io/kubeopencode/kubeopencode-agent-attach:latest`
 
 ## Building Agent Images

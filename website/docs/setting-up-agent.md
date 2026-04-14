@@ -23,9 +23,9 @@ An Agent in KubeOpenCode is a persistent, running AI service on Kubernetes. Conf
 
 ## Step 1: Configure the AI Model
 
-This is the most critical step. KubeOpenCode runs [OpenCode](https://opencode.ai) under the hood, so model configuration follows the OpenCode config format. You provide this via the Agent's `config` field as an inline JSON string.
+This is the most critical step. KubeOpenCode supports multiple coding agent runtimes — [OpenCode](https://opencode.ai) (default) and [Crush](https://charm.sh/crush) by Charmbracelet. Model configuration format depends on the runtime.
 
-### Minimal Configuration
+### OpenCode (Default Runtime)
 
 ```yaml
 apiVersion: kubeopencode.io/v1alpha1
@@ -44,6 +44,39 @@ spec:
 ```
 
 The `config` field is written to `/tools/opencode.json` inside the container. The `OPENCODE_CONFIG` environment variable is set automatically — you don't need to do anything else.
+
+### Crush Runtime
+
+To use Crush, set `runtime: crush` and use the Crush config format:
+
+```yaml
+apiVersion: kubeopencode.io/v1alpha1
+kind: Agent
+metadata:
+  name: my-agent
+spec:
+  runtime: crush
+  agentImage: ghcr.io/kubeopencode/kubeopencode-agent-crush:latest
+  workspaceDir: /workspace
+  serviceAccountName: kubeopencode-agent
+  config: |
+    {
+      "models": {
+        "large": {
+          "model": "claude-sonnet-4-6",
+          "provider": "anthropic"
+        },
+        "small": {
+          "model": "claude-haiku-4-5-20251001",
+          "provider": "anthropic"
+        }
+      }
+    }
+```
+
+The config is written to the Crush data directory and discovered automatically. Use `crush models` inside the agent terminal to list available model IDs.
+
+For Vertex AI provider setup (Claude via Google Cloud), see [Agent Configuration — Vertex AI Example](features/agent-configuration.md#vertex-ai-example).
 
 ### Model Format
 
@@ -126,11 +159,11 @@ KubeOpenCode uses a **two-container pattern**:
 
 | Container | Field | Role |
 |-----------|-------|------|
-| **Init Container** | `agentImage` | Contains the OpenCode CLI binary; copies it to a shared `/tools` volume at startup |
-| **Worker Container** | `executorImage` | Your development environment — runs the AI agent using `/tools/opencode` |
+| **Init Container** | `agentImage` | Contains the runtime CLI binary (OpenCode or Crush); copies it to a shared `/tools` volume at startup |
+| **Worker Container** | `executorImage` | Your development environment — runs the AI agent using the runtime binary from `/tools` |
 
 :::info How the two-container pattern works
-At pod startup, the init container copies the OpenCode binary from `agentImage` to the shared `/tools` volume. The worker container (`executorImage`) then uses `/tools/opencode` to run the AI agent. This separation means you can update OpenCode independently from your development environment.
+At pod startup, the init container copies the runtime binary from `agentImage` to the shared `/tools` volume. The worker container (`executorImage`) then uses the binary to run the AI agent. This separation means you can update the runtime independently from your development environment.
 :::
 
 ### Available Images
@@ -138,15 +171,21 @@ At pod startup, the init container copies the OpenCode binary from `agentImage` 
 | Image | Type | Description |
 |-------|------|-------------|
 | `opencode` | Init Container | OpenCode CLI binary |
+| `crush` | Init Container | Crush CLI binary |
 | `devbox` | Worker (Executor) | Universal development environment with Go, Node.js, Python, kubectl, helm |
 | `echo` | Testing | Minimal Alpine image for E2E testing |
 
 ### Default Images
 
-If you don't specify images, KubeOpenCode uses these defaults:
+If you don't specify images, KubeOpenCode uses defaults based on the runtime:
 
-- **OpenCode init**: `ghcr.io/kubeopencode/kubeopencode-agent-opencode:latest`
-- **Devbox executor**: `ghcr.io/kubeopencode/kubeopencode-agent-devbox:latest`
+**OpenCode (default):**
+- **Init**: `ghcr.io/kubeopencode/kubeopencode-agent-opencode:latest`
+- **Executor**: `ghcr.io/kubeopencode/kubeopencode-agent-devbox:latest`
+
+**Crush:**
+- **Init**: `ghcr.io/kubeopencode/kubeopencode-agent-crush:latest`
+- **Executor**: `ghcr.io/kubeopencode/kubeopencode-agent-devbox:latest`
 
 For most users, the defaults work out of the box — you don't need to set `agentImage` or `executorImage`.
 
