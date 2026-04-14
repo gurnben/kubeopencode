@@ -137,7 +137,7 @@ func (s *Server) setupRoutes() *chi.Mux {
 	r.Use(chimiddleware.RealIP)
 	r.Use(structuredLogger)
 	r.Use(chimiddleware.Recoverer)
-	r.Use(chimiddleware.Timeout(60 * time.Second))
+	r.Use(timeoutUnlessLongLived(60 * time.Second))
 
 	// CORS middleware
 	if len(s.opts.CORSAllowedOrigins) > 0 {
@@ -392,6 +392,23 @@ func corsMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
 			}
 
 			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// timeoutUnlessLongLived wraps chi's Timeout middleware but skips it for
+// long-lived connections (WebSocket terminal and SSE proxy endpoints).
+func timeoutUnlessLongLived(timeout time.Duration) func(http.Handler) http.Handler {
+	timeoutMW := chimiddleware.Timeout(timeout)
+	return func(next http.Handler) http.Handler {
+		withTimeout := timeoutMW(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			p := r.URL.Path
+			if strings.HasSuffix(p, "/terminal") || strings.Contains(p, "/proxy/") || strings.HasSuffix(p, "/proxy") {
+				next.ServeHTTP(w, r)
+				return
+			}
+			withTimeout.ServeHTTP(w, r)
 		})
 	}
 }

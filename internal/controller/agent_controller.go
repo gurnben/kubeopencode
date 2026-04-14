@@ -410,7 +410,7 @@ func (r *AgentReconciler) processAgentContexts(ctx context.Context, agent *kubeo
 	}
 
 	// Process skills and inject config (skills.paths + user config → opencode.json)
-	skillGitMounts, fileMounts, err := processSkillsAndInjectConfig(cfg.skills, cfg.config, configMapData, fileMounts)
+	skillGitMounts, fileMounts, err := processSkillsAndInjectConfig(cfg.skills, cfg.config, configMapData, fileMounts, cfg.runtime)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}

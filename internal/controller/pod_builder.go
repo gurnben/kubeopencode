@@ -302,8 +302,10 @@ const (
 	DefaultMemoryRequest = "512Mi"
 
 	// DefaultSecretFileMode is the default permission mode for mounted secrets.
-	// 0600 gives read/write access to the owner only.
-	DefaultSecretFileMode int32 = 0600
+	// 0644 gives read access to all users in the pod. The container may run as
+	// a non-root UID (e.g., 1000) while the secret volume is owned by root,
+	// so the file must be world-readable.
+	DefaultSecretFileMode int32 = 0644
 
 	// DefaultGitRef is the default Git reference to clone
 	DefaultGitRef = "HEAD"

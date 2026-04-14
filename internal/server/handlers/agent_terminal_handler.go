@@ -206,7 +206,8 @@ func (h *AgentTerminalHandler) ServeTerminal(w http.ResponseWriter, r *http.Requ
 	}()
 
 	wsWriter := &wsStdoutWriter{ws: ws, mu: &wsMu}
-	attachURL := fmt.Sprintf("http://localhost:%d", port)
+	attachCmd := buildAttachCommand(containerName, port)
+	termLog.Info("resolved attach command", "container", containerName, "command", attachCmd, "agent", agentName)
 
 	// Retry loop for transient exec failures (e.g., exit code 137 after agent resume)
 	var lastErr error
@@ -222,7 +223,7 @@ func (h *AgentTerminalHandler) ServeTerminal(w http.ResponseWriter, r *http.Requ
 			SubResource("exec").
 			VersionedParams(&corev1.PodExecOptions{
 				Container: containerName,
-				Command:   []string{"/tools/opencode", "attach", attachURL},
+				Command:   attachCmd,
 				Stdin:     true,
 				Stdout:    true,
 				TTY:       true,
@@ -359,7 +360,6 @@ func resolveAgentServerPod(ctx context.Context, k8sClient client.Client, namespa
 	if err := k8sClient.List(ctx, podList,
 		client.InNamespace(namespace),
 		client.MatchingLabels{
-			"app.kubernetes.io/name":      "kubeopencode-server",
 			"app.kubernetes.io/instance":  agentName,
 			"app.kubernetes.io/component": "server",
 		},
@@ -376,10 +376,33 @@ func resolveAgentServerPod(ctx context.Context, k8sClient client.Client, namespa
 		for _, cond := range pod.Status.Conditions {
 			if cond.Type == corev1.PodReady && cond.Status == corev1.ConditionTrue {
 				serverPort := controller.GetServerPort(&agent)
-				return pod.Name, controller.ServerContainerName, serverPort, nil
+				cName := findServerContainer(pod)
+				return pod.Name, cName, serverPort, nil
 			}
 		}
 	}
 
 	return "", "", 0, fmt.Errorf("no ready server pod found for agent %q", agentName)
+}
+
+func findServerContainer(pod *corev1.Pod) string {
+	for _, c := range pod.Spec.Containers {
+		if strings.HasSuffix(c.Name, "-server") {
+			return c.Name
+		}
+	}
+	if len(pod.Spec.Containers) > 0 {
+		return pod.Spec.Containers[0].Name
+	}
+	return controller.ServerContainerName
+}
+
+func buildAttachCommand(containerName string, port int32) []string {
+	if strings.HasPrefix(containerName, "crush") {
+		return []string{
+			"sh", "-c",
+			fmt.Sprintf("CRUSH_CLIENT_SERVER=1 /tools/crush --host tcp://localhost:%d", port),
+		}
+	}
+	return []string{"/tools/opencode", "attach", fmt.Sprintf("http://localhost:%d", port)}
 }

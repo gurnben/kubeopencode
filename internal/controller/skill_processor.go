@@ -83,7 +83,7 @@ func processSkills(skills []kubeopenv1alpha1.SkillSource) ([]gitMount, []string)
 // is responsible for JSON validation when needed. The Agent controller intentionally
 // skips validation to allow Deployment creation even with invalid config (the error
 // surfaces at Task execution time instead).
-func processSkillsAndInjectConfig(skills []kubeopenv1alpha1.SkillSource, config *string, configMapData map[string]string, fileMounts []fileMount) ([]gitMount, []fileMount, error) {
+func processSkillsAndInjectConfig(skills []kubeopenv1alpha1.SkillSource, config *string, configMapData map[string]string, fileMounts []fileMount, runtime string) ([]gitMount, []fileMount, error) {
 	skillGitMounts, skillPaths := processSkills(skills)
 
 	effectiveConfig := config
@@ -96,9 +96,11 @@ func processSkillsAndInjectConfig(skills []kubeopenv1alpha1.SkillSource, config 
 	}
 
 	if effectiveConfig != nil && *effectiveConfig != "" {
-		configMapKey := sanitizeConfigMapKey(OpenCodeConfigPath)
+		profile := GetRuntimeProfile(runtime)
+		configPath := profile.ConfigPath()
+		configMapKey := sanitizeConfigMapKey(configPath)
 		configMapData[configMapKey] = *effectiveConfig
-		fileMounts = append(fileMounts, fileMount{filePath: OpenCodeConfigPath})
+		fileMounts = append(fileMounts, fileMount{filePath: configPath})
 	}
 
 	return skillGitMounts, fileMounts, nil

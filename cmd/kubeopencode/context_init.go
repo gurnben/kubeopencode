@@ -146,7 +146,7 @@ func copyFileWithMode(src, dst string, fileMode *int32) error {
 	// Create parent directory if needed
 	dstDir := filepath.Dir(dst)
 	if dstDir != "" && dstDir != "." {
-		if err := os.MkdirAll(dstDir, 0755); err != nil { //nolint:gosec // Needs group/others access for random UID environments
+		if err := os.MkdirAll(dstDir, 0777); err != nil { //nolint:gosec // World-writable: init containers and main containers run as different UIDs
 			return fmt.Errorf("failed to create parent directory: %w", err)
 		}
 	}
@@ -171,7 +171,7 @@ func copyFileWithMode(src, dst string, fileMode *int32) error {
 	}
 
 	// Set permissions - use provided fileMode or default to 0644
-	mode := os.FileMode(0644)
+	mode := os.FileMode(0666) //nolint:gosec // World-writable: init and main containers run as different UIDs
 	if fileMode != nil {
 		mode = os.FileMode(uint32(*fileMode)) //nolint:gosec // fileMode is validated by Kubernetes API
 	}

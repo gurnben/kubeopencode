@@ -66,33 +66,29 @@ type RuntimeProfile struct {
 func (p *RuntimeProfile) BuildRunCommand(workspaceDir, taskTitle, serverURL string) string {
 	binary := fmt.Sprintf("/tools/%s", p.BinaryName)
 	promptArg := fmt.Sprintf(`"$(cat %s/task.md)"`, workspaceDir)
-	flags := ""
+	globalFlags := ""
 	for _, f := range p.PermissionFlags {
-		flags += " " + f
+		globalFlags += " " + f
 	}
 
 	if serverURL != "" {
-		// Server-attached mode (agentRef path)
-		// OpenCode: opencode run --attach <url> --title <title> "prompt"
-		// Crush: crush run --yolo "prompt" (Crush doesn't have --attach yet)
 		switch p.Name {
 		case "opencode":
 			return fmt.Sprintf(`%s run --attach %s --title %s %s`, binary, serverURL, taskTitle, promptArg)
 		case "crush":
-			return fmt.Sprintf(`%s run%s %s`, binary, flags, promptArg)
+			return fmt.Sprintf(`%s%s run %s`, binary, globalFlags, promptArg)
 		default:
-			return fmt.Sprintf(`%s run%s %s`, binary, flags, promptArg)
+			return fmt.Sprintf(`%s%s run %s`, binary, globalFlags, promptArg)
 		}
 	}
 
-	// Standalone mode (templateRef path)
 	switch p.Name {
 	case "opencode":
 		return fmt.Sprintf(`%s run --title %s %s`, binary, taskTitle, promptArg)
 	case "crush":
-		return fmt.Sprintf(`%s run%s %s`, binary, flags, promptArg)
+		return fmt.Sprintf(`%s%s run %s`, binary, globalFlags, promptArg)
 	default:
-		return fmt.Sprintf(`%s run%s %s`, binary, flags, promptArg)
+		return fmt.Sprintf(`%s%s run %s`, binary, globalFlags, promptArg)
 	}
 }
 
@@ -111,6 +107,9 @@ func (p *RuntimeProfile) BuildServeCommand(port int) string {
 
 // ConfigPath returns the full path to the config file in /tools.
 func (p *RuntimeProfile) ConfigPath() string {
+	if p.Name == "crush" {
+		return "/tmp/crush-data/crush.json"
+	}
 	return fmt.Sprintf("/tools/%s", p.ConfigFileName)
 }
 
@@ -147,7 +146,7 @@ var runtimeProfiles = map[string]*RuntimeProfile{
 		ConfigContentEnvVar:    "",
 		PermissionEnvVar:       "",
 		DefaultPermissionValue: "",
-		PermissionFlags:        []string{"--yolo"},
+		PermissionFlags:        nil, // crush run is non-interactive and auto-accepts permissions
 		DefaultAgentImage:      "ghcr.io/gurnben/crush-container:latest",
 		HealthPath:             "/v1/health",
 		DBEnvVar:               "",
@@ -158,6 +157,7 @@ var runtimeProfiles = map[string]*RuntimeProfile{
 			{Name: "CRUSH_DISABLE_METRICS", Value: "1"},
 			{Name: "CRUSH_DISABLE_PROVIDER_AUTO_UPDATE", Value: "1"},
 			{Name: "DO_NOT_TRACK", Value: "1"},
+			{Name: "CRUSH_GLOBAL_DATA", Value: "/tmp/crush-data"},
 		},
 	},
 }
